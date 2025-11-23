@@ -265,61 +265,98 @@ if run_button:
             ["Summary", "Charts", "Table"]
         )
 
+        # ---------- SUMMARY TAB (clean, high level) ----------
         with tab_summary:
-            st.subheader("Summary at end of horizon")
+            sell_final = final["Sell_Portfolio"]
+            borrow_final = final["Borrow_Net_to_Heirs"]
+            diff = borrow_final - sell_final
 
-            col1, col2, col3 = st.columns(3)
+            # 1. Clear headline: which strategy wins
+            if abs(diff) < 1:
+                headline = "Both strategies are essentially tied under these assumptions."
+                color = "#888888"
+            elif diff > 0:
+                headline = (
+                    f"Borrowing against the portfolio leaves your heirs about "
+                    f"${diff:,.0f} more than selling."
+                )
+                color = "#1f7a1f"  # greenish
+            else:
+                headline = (
+                    f"Selling and paying tax leaves your heirs about "
+                    f"${-diff:,.0f} more than borrowing."
+                )
+                color = "#b02020"  # reddish
+
+            st.markdown(
+                f"""
+                <div style="padding: 1rem; border-radius: 0.5rem;
+                            background-color: #f5f5f5; margin-bottom: 1rem;">
+                    <h3 style="margin: 0; color: {color};">{headline}</h3>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            # 2. Simple side by side comparison
+            st.subheader("End of horizon comparison")
+
+            col1, col2 = st.columns(2)
             with col1:
+                st.markdown("**Sell and pay tax each year**")
                 st.metric(
-                    "Sell strategy: portfolio to heirs",
-                    f"${final['Sell_Portfolio']:,.0f}",
+                    label="Portfolio to heirs",
+                    value=f"${sell_final:,.0f}",
                 )
             with col2:
+                st.markdown("**Borrow against portfolio (SBLOC)**")
                 st.metric(
-                    "Borrow strategy: net to heirs",
-                    f"${final['Borrow_Net_to_Heirs']:,.0f}",
+                    label="Net to heirs after repaying loan",
+                    value=f"${borrow_final:,.0f}",
                 )
-            with col3:
-                diff = final["Borrow_Net_to_Heirs"] - final["Sell_Portfolio"]
-                label = "Borrow minus sell"
-                st.metric(label, f"${diff:,.0f}")
 
+            # 3. Optional concise text summary
             st.caption(
-                "Sell strategy assumes remaining portfolio receives a step up in basis at death. "
-                "Borrow strategy assumes the loan is repaid from the portfolio at death and the remainder passes with a step up."
+                "Both strategies fund the same target spending. "
+                "Sell strategy reduces the portfolio each year to pay tax and spending. "
+                "Borrow strategy keeps the portfolio fully invested and repays the loan from it at death."
             )
 
-            st.markdown("### Funding success (sell strategy)")
-            spent_total = df["Sell_Actual_Spend"].sum()
-            target_total = annual_spend * years
-            st.write(
-                f"Target lifetime consumption: ${target_total:,.0f} "
-                f"(over {years} years at ${annual_spend:,.0f} per year)."
-            )
-            st.write(
-                f"Actual lifetime consumption delivered by sell strategy: ${spent_total:,.0f}."
-            )
-            if spent_total + 1e-6 < target_total:
-                st.warning(
-                    "The sell strategy could not fully fund your target spending before the portfolio depleted."
+            # 4. Funding success moved into an expander
+            with st.expander("Show spending and funding details for the sell strategy"):
+                st.markdown("#### Funding success (sell strategy)")
+                spent_total = df["Sell_Actual_Spend"].sum()
+                target_total = annual_spend * years
+                st.write(
+                    f"Target lifetime consumption: ${target_total:,.0f} "
+                    f"(over {years} years at ${annual_spend:,.0f} per year)."
+                )
+                st.write(
+                    f"Actual lifetime consumption delivered by sell strategy: "
+                    f"${spent_total:,.0f}."
+                )
+                if spent_total + 1e-6 < target_total:
+                    st.warning(
+                        "The sell strategy could not fully fund your target spending "
+                        "before the portfolio depleted."
+                    )
+
+            # 5. Important notes tucked away
+            with st.expander("Model assumptions and limitations"):
+                st.markdown(
+                    """
+- Deterministic model only, no volatility or changing interest rates.  
+- No estate or inheritance tax modeled.  
+- Assumes step up in basis rules remain in force for the entire period.  
+- Treats SBLOC interest as a non deductible personal expense.  
+- Uses a single average gain fraction that does not change as you sell.  
+
+Use this as a planning and intuition tool, **not** as tax or investment advice.
+                    """
                 )
 
+        # ---------- CHARTS TAB ----------
         with tab_charts:
-            st.subheader("Portfolio and loan paths")
-
-            fig1, ax1 = plt.subplots()
-            ax1.plot(df["Year"], df["Sell_Portfolio"], label="Sell: portfolio")
-            ax1.plot(df["Year"], df["Borrow_Portfolio"], label="Borrow: portfolio")
-            ax1.plot(df["Year"], df["Borrow_Loan_Balance"], label="Borrow: loan balance")
-            ax1.set_xlabel("Year")
-            ax1.set_ylabel("Dollars")
-            ax1.set_title("Portfolio and loan over time")
-            ax1.yaxis.set_major_formatter(
-                mtick.StrMethodFormatter('${x:,.0f}')
-            )
-            ax1.legend()
-            st.pyplot(fig1)
-
             st.subheader("Net to heirs over time")
 
             fig2, ax2 = plt.subplots()
@@ -338,18 +375,41 @@ if run_button:
             ax2.legend()
             st.pyplot(fig2)
 
-            st.subheader("Loan-to-value (LTV) over time")
+            with st.expander("Show portfolio, loan, and LTV paths"):
+                st.subheader("Portfolio and loan paths")
 
-            fig3, ax3 = plt.subplots()
-            ax3.plot(df["Year"], df["Borrow_LTV"], label="Borrow: LTV")
-            ax3.set_xlabel("Year")
-            ax3.set_ylabel("LTV")
-            ax3.set_title("Loan-to-value ratio over time")
-            ax3.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.0%}"))
-            ax3.axhline(0.5, linestyle="--", linewidth=1)
-            ax3.legend()
-            st.pyplot(fig3)
+                fig1, ax1 = plt.subplots()
+                ax1.plot(df["Year"], df["Sell_Portfolio"], label="Sell: portfolio")
+                ax1.plot(df["Year"], df["Borrow_Portfolio"], label="Borrow: portfolio")
+                ax1.plot(
+                    df["Year"],
+                    df["Borrow_Loan_Balance"],
+                    label="Borrow: loan balance",
+                )
+                ax1.set_xlabel("Year")
+                ax1.set_ylabel("Dollars")
+                ax1.set_title("Portfolio and loan over time")
+                ax1.yaxis.set_major_formatter(
+                    mtick.StrMethodFormatter('${x:,.0f}')
+                )
+                ax1.legend()
+                st.pyplot(fig1)
 
+                st.subheader("Loan-to-value (LTV) over time")
+
+                fig3, ax3 = plt.subplots()
+                ax3.plot(df["Year"], df["Borrow_LTV"], label="Borrow: LTV")
+                ax3.set_xlabel("Year")
+                ax3.set_ylabel("LTV")
+                ax3.set_title("Loan-to-value ratio over time")
+                ax3.yaxis.set_major_formatter(
+                    mtick.FuncFormatter(lambda x, _: f"{x:.0%}")
+                )
+                ax3.axhline(0.5, linestyle="--", linewidth=1)
+                ax3.legend()
+                st.pyplot(fig3)
+
+        # ---------- TABLE TAB ----------
         with tab_table:
             st.subheader("Year by year details")
             display_df = df.copy()
@@ -369,17 +429,5 @@ if run_button:
                 use_container_width=True,
             )
 
-        st.markdown(
-            """
-**Important notes**
-
-- This is a deterministic model. It does not simulate volatility, margin calls, or changing interest rates.
-- It does not model estate or inheritance tax.
-- It assumes step up in basis rules remain in force for the entire period.
-- It treats SBLOC interest as a non deductible personal expense.
-- The gain fraction is held constant as an approximation; in reality it will change as you sell.
-Use it as a planning and intuition tool, not as tax or investment advice.
-"""
-        )
 else:
     st.info("Set your assumptions in the sidebar, then click “Run model”.")
